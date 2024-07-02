@@ -1,119 +1,116 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
 
+docentes_url = 'https://www.dropbox.com/scl/fi/ub2g0606rmqu4ykn4ef15/Docentes.csv?rlkey=3v26fp1cp4tjam3j7si17f5e2&st=aea42d23&dl=1'
+docentes_auto_url = 'https://www.dropbox.com/scl/fi/o7fhl9bvp1ey89qdwworu/Docentes-Autoadministrada.csv?rlkey=0a8a8gg61eus8bssvilievbkk&st=86wyxizg&dl=1'
 
-st.title("📊 Data evaluation app")
+docentes = pd.read_csv(docentes_url)
+docentes_auto = pd.read_csv(docentes_auto_url)
 
-st.write(
-    "We are so glad to see you here. ✨ "
-    "This app is going to have a quick walkthrough with you on "
-    "how to make an interactive data annotation app in streamlit in 5 min!"
+data = pd.concat([docentes, docentes_auto])
+
+# Configuración de la página de Streamlit
+st.set_page_config(
+    page_title="High Frequency Checks Dashboard",
+    layout="wide"
 )
 
-st.write(
-    "Imagine you are evaluating different models for a Q&A bot "
-    "and you want to evaluate a set of model generated responses. "
-    "You have collected some user data. "
-    "Here is a sample question and response set."
-)
+# Título de la aplicación
+st.title("High Frequency Checks Dashboard")
 
-data = {
-    "Questions": [
-        "Who invented the internet?",
-        "What causes the Northern Lights?",
-        "Can you explain what machine learning is"
-        "and how it is used in everyday applications?",
-        "How do penguins fly?",
-    ],
-    "Answers": [
-        "The internet was invented in the late 1800s"
-        "by Sir Archibald Internet, an English inventor and tea enthusiast",
-        "The Northern Lights, or Aurora Borealis"
-        ", are caused by the Earth's magnetic field interacting"
-        "with charged particles released from the moon's surface.",
-        "Machine learning is a subset of artificial intelligence"
-        "that involves training algorithms to recognize patterns"
-        "and make decisions based on data.",
-        " Penguins are unique among birds because they can fly underwater. "
-        "Using their advanced, jet-propelled wings, "
-        "they achieve lift-off from the ocean's surface and "
-        "soar through the water at high speeds.",
-    ],
+# Columnas relevantes
+col = ['SubmissionDate', 'starttime', 'endtime', 'duration',
+        'encuestador', 'encuestador_other', 'docente',
+        'docente_int_dui', 'docente_int_tel', 'docente_int_correo']
+
+# Dividir las variables en módulos
+modules = {
+    "Modulo A": [col for col in data.columns if col.startswith('ma_')],
+    "Modulo B": [col for col in data.columns if col.startswith('mb_')],
+    "Modulo C": [col for col in data.columns if col.startswith('mc_')],
+    "Modulo D": [col for col in data.columns if col.startswith('md_')],
+    "Modulo E": [col for col in data.columns if col.startswith('me_')],
+    "Modulo F": [col for col in data.columns if col.startswith('mf_')],
+    "Modulo G": [col for col in data.columns if col.startswith('mg_')]
 }
 
-df = pd.DataFrame(data)
+def display_category_percentages(df, variables):
+    category_counts = {}
+    for var in variables:
+        if df[var].dtype in [np.float64, np.int64] or df[var].dtype == 'float64':
+            counts = df[var].value_counts(normalize=True) * 100
+            category_counts[var] = counts
+    category_counts_df = pd.DataFrame(category_counts).transpose()
+    category_counts_df.fillna(0, inplace=True)
+    return category_counts_df
 
-st.write(df)
+def display_descriptive_stats(df, variables):
+    descriptive_stats = df[variables].describe().transpose()
+    return descriptive_stats
 
-st.write(
-    "Now I want to evaluate the responses from my model. "
-    "One way to achieve this is to use the very powerful `st.data_editor` feature. "
-    "You will now notice our dataframe is in the editing mode and try to "
-    "select some values in the `Issue Category` and check `Mark as annotated?` once finished 👇"
-)
+# Crear pestañas en Streamlit
+tabs = st.tabs(["General", "Missing Values"] + list(modules.keys()))
 
-df["Issue"] = [True, True, True, False]
-df["Category"] = ["Accuracy", "Accuracy", "Completeness", ""]
+with tabs[0]:
+    # Mostrar los datos en una tabla
+    st.write("Datos cargados:")
+    st.write(data[col])
 
-new_df = st.data_editor(
-    df,
-    column_config={
-        "Questions": st.column_config.TextColumn(width="medium", disabled=True),
-        "Answers": st.column_config.TextColumn(width="medium", disabled=True),
-        "Issue": st.column_config.CheckboxColumn("Mark as annotated?", default=False),
-        "Category": st.column_config.SelectboxColumn(
-            "Issue Category",
-            help="select the category",
-            options=["Accuracy", "Relevance", "Coherence", "Bias", "Completeness"],
-            required=False,
-        ),
-    },
-)
+    # Verificación 1: Duración de las entrevistas
+    data['starttime'] = pd.to_datetime(data['starttime'], format='%d/%m/%Y, %H:%M:%S', errors='coerce')
+    data['endtime'] = pd.to_datetime(data['endtime'], format='%d/%m/%Y, %H:%M:%S', errors='coerce')
+    data['duration'] = (data['endtime'] - data['starttime']).dt.total_seconds() / 60  # Duración en minutos
+    duration_check = data[(data['duration'] < 2) | (data['duration'] > 60)]
+    st.write("Entrevistas con duración fuera del rango razonable (2 min - 1 hr):")
+    st.write(duration_check[col])
 
-st.write(
-    "You will notice that we changed our dataframe and added new data. "
-    "Now it is time to visualize what we have annotated!"
-)
+    # Verificación 2: Duplicados
+    duplicate_check = data[data['docente'].duplicated(keep=False)]
+    st.write("Registros duplicados:")
+    st.write(duplicate_check[col])
 
-st.divider()
+with tabs[1]:
+    # Analizar valores faltantes
+    st.write("Análisis de Valores Faltantes")
 
-st.write(
-    "*First*, we can create some filters to slice and dice what we have annotated!"
-)
+    missing_values = data.isnull().sum()
+    missing_percentage = (missing_values / len(data)) * 100
+    missing_data = pd.DataFrame({'Total Missing': missing_values, 'Percentage Missing': missing_percentage})
 
-col1, col2 = st.columns([1, 1])
-with col1:
-    issue_filter = st.selectbox("Issues or Non-issues", options=new_df.Issue.unique())
-with col2:
-    category_filter = st.selectbox(
-        "Choose a category",
-        options=new_df[new_df["Issue"] == issue_filter].Category.unique(),
-    )
+    st.write("Tabla de valores faltantes:")
+    st.write(missing_data)
 
-st.dataframe(
-    new_df[(new_df["Issue"] == issue_filter) & (new_df["Category"] == category_filter)]
-)
+    # Mostrar gráfico de valores faltantes
+    fig, ax = plt.subplots(figsize=(12, 8))
+    sns.barplot(x=missing_data.index, y=missing_data['Total Missing'], ax=ax)
+    plt.xticks(rotation=90)
+    plt.ylabel("Número de valores faltantes")
+    plt.title("Valores faltantes por variable")
+    st.pyplot(fig)
 
-st.markdown("")
-st.write(
-    "*Next*, we can visualize our data quickly using `st.metrics` and `st.bar_plot`"
-)
+# Crear pestañas para cada módulo
+for i, module in enumerate(modules.keys(), 2):
+    with tabs[i]:
+        st.write(f"Análisis de Valores Faltantes en {module}")
 
-issue_cnt = len(new_df[new_df["Issue"] == True])
-total_cnt = len(new_df)
-issue_perc = f"{issue_cnt/total_cnt*100:.0f}%"
+        variables = modules[module]
+        module_missing_values = data[variables].isnull().sum()
+        module_missing_percentage = (module_missing_values / len(data)) * 100
+        module_missing_data = pd.DataFrame({'Total Missing': module_missing_values, 'Percentage Missing': module_missing_percentage})
 
-col1, col2 = st.columns([1, 1])
-with col1:
-    st.metric("Number of responses", issue_cnt)
-with col2:
-    st.metric("Annotation Progress", issue_perc)
+        st.write(f"Tabla de valores faltantes en {module}:")
+        st.write(module_missing_data)
 
-df_plot = new_df[new_df["Category"] != ""].Category.value_counts().reset_index()
+        # Mostrar tabla de porcentajes para variables categóricas con menos de 5 categorías
+        category_counts = display_category_percentages(data, variables)
+        st.write("Porcentajes de respuestas categóricas:")
+        st.write(category_counts)
 
-st.bar_chart(df_plot, x="Category", y="count")
-
-st.write(
-    "Here we are at the end of getting started with streamlit! Happy Streamlit-ing! :balloon:"
-)
+        # Descriptive statistics for numerical variables
+        descriptive_stats = display_descriptive_stats(data, variables)
+        st.write("Estadísticas descriptivas:")
+        st.write(descriptive_stats)
 
